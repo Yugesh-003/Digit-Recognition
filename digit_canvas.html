@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digit Recognition Canvas</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        canvas {
+            border: 2px solid #333;
+            border-radius: 5px;
+            cursor: crosshair;
+            background-color: black;
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        .predict-btn {
+            background-color: #007bff;
+            color: white;
+        }
+        .clear-btn {
+            background-color: #6c757d;
+            color: white;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #e7f3ff;
+            border-radius: 5px;
+            display: none;
+        }
+        .prediction {
+            font-size: 48px;
+            font-weight: bold;
+            color: #007bff;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Digit Recognition Canvas</h1>
+        <p>Draw a digit (0-9) in the canvas below and click Predict</p>
+        
+        <canvas id="canvas" width="280" height="280"></canvas>
+        
+        <div>
+            <button class="predict-btn" onclick="predictDigit()">🔍 Predict</button>
+            <button class="clear-btn" onclick="clearCanvas()">🗑️ Clear</button>
+        </div>
+        
+        <div id="result" class="result">
+            <h3>Prediction Result</h3>
+            <div id="prediction" class="prediction"></div>
+            <p id="confidence"></p>
+        </div>
+        
+        <div style="margin-top: 20px; padding: 15px; background-color: #fff3cd; border-radius: 5px;">
+            <h4>Instructions:</h4>
+            <ul style="text-align: left;">
+                <li>Draw a single digit (0-9) in the black canvas</li>
+                <li>Try to center the digit and make it large enough</li>
+                <li>Click "Predict" to see the AI's prediction</li>
+                <li>Use "Clear" to start over</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        let isDrawing = false;
+
+        // Initialize canvas
+        ctx.fillStyle = 'black';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 15;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        // Mouse events
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseout', stopDrawing);
+
+        function startDrawing(e) {
+            isDrawing = true;
+            const rect = canvas.getBoundingClientRect();
+            ctx.beginPath();
+            ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+        }
+
+        function draw(e) {
+            if (!isDrawing) return;
+            const rect = canvas.getBoundingClientRect();
+            ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+            ctx.stroke();
+        }
+
+        function stopDrawing() {
+            isDrawing = false;
+        }
+
+        function clearCanvas() {
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            document.getElementById('result').style.display = 'none';
+        }
+
+        function preprocessCanvas() {
+            // Create temporary canvas for 28x28 conversion
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = 28;
+            tempCanvas.height = 28;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Fill with black background first
+            tempCtx.fillStyle = 'black';
+            tempCtx.fillRect(0, 0, 28, 28);
+            
+            // Draw scaled down version
+            tempCtx.drawImage(canvas, 0, 0, 28, 28);
+            
+            // Get image data and convert to grayscale array
+            const imageData = tempCtx.getImageData(0, 0, 28, 28);
+            const data = imageData.data;
+            const grayscale = [];
+            
+            for (let i = 0; i < data.length; i += 4) {
+                // Convert RGBA to grayscale and normalize to 0-1
+                const gray = data[i] / 255.0;
+                grayscale.push(gray);
+            }
+            
+            console.log('Sample pixels:', grayscale.slice(0, 10));
+            return grayscale;
+        }
+
+        async function predictDigit() {
+            try {
+                const imageData = preprocessCanvas();
+                
+                // Send to Flask backend
+                const response = await fetch('http://localhost:5000/predict', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ image: imageData })
+                });
+                
+                const result = await response.json();
+                
+                if (result.error) {
+                    throw new Error(result.error);
+                }
+                
+                // Display result
+                document.getElementById('prediction').textContent = result.prediction;
+                document.getElementById('confidence').textContent = `Confidence: ${result.confidence.toFixed(1)}%`;
+                document.getElementById('result').style.display = 'block';
+                
+            } catch (error) {
+                console.error('Prediction error:', error);
+                document.getElementById('prediction').textContent = 'Error';
+                document.getElementById('confidence').textContent = 'Check if Flask server is running';
+                document.getElementById('result').style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>
