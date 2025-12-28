@@ -3,6 +3,7 @@ from flask_cors import CORS
 import numpy as np
 import tensorflow as tf
 from tensorflow import keras
+import matplotlib.pyplot as plt
 
 app = Flask(__name__)
 CORS(app)
@@ -10,56 +11,55 @@ CORS(app)
 # Global model variable
 model = None
 
-def create_and_train_model():
+def create_model():
+    """Create model architecture matching your notebook"""
+    model = keras.Sequential([
+        keras.layers.Dense(128, input_shape=(784,), activation='relu'),
+        keras.layers.Dense(64, activation='relu'),
+        keras.layers.Dense(32, activation='relu'),
+        keras.layers.Dense(10, activation='softmax')
+    ])
+    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    return model
+
+def train_and_save_weights():
     global model
-    print("Creating and training new model...")
+    print("Training new model...")
     
     # Load MNIST data
     mnist = keras.datasets.mnist
     (x_train, y_train), (x_test, y_test) = mnist.load_data()
     
-    # Normalize data
-    x_train = x_train.astype('float32') / 255.0
-    x_test = x_test.astype('float32') / 255.0
+    # Normalize data (CRITICAL: same as prediction input)
+    x_train_flat = x_train.reshape(len(x_train), 28*28) / 255.0
     
-    # Flatten data
-    x_train_flat = x_train.reshape(60000, 784)
-    x_test_flat = x_test.reshape(10000, 784)
+    # Create and train model
+    model = create_model()
+    model.fit(x_train_flat, y_train, epochs=5, verbose=1)
     
-    # Create model (same as your notebook)
-    model = keras.Sequential([
-        keras.layers.Dense(256, input_shape=(784,), activation='relu'),
-        keras.layers.Dense(128, activation='relu'),
-        keras.layers.Dense(64, activation='relu'),
-        keras.layers.Dense(32, activation='relu'),
-        keras.layers.Dense(10, activation='softmax')
-    ])
+    # Test accuracy
+    x_test_flat = x_test.reshape(len(x_test), 28*28) / 255.0
+    test_loss, test_acc = model.evaluate(x_test_flat, y_test, verbose=0)
+    print(f"Test accuracy: {test_acc:.4f}")
     
-    # Compile model
-    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-    
-    # Train model
-    print("Training model...")
-    model.fit(x_train_flat, y_train, epochs=5, batch_size=32, verbose=1)
-    
-    # Save model
-    model.save('mnist_model.h5')
-    print("Model saved as mnist_model.h5")
-    
-    return model
+    # Save only weights
+    model.save_weights('mnist_weights.weights.h5')
+    print("Weights saved")
 
-def load_model_file():
+def load_model_weights():
     global model
     try:
-        model = keras.models.load_model('mnist_model.h5')
-        print("Model loaded successfully")
+        model = create_model()
+        model.load_weights('mnist_weights.weights.h5')
+        print("Model weights loaded")
         return True
     except Exception as e:
-        print(f"Failed to load model: {e}")
+        print(f"Failed to load weights: {e}")
         return False
 
 @app.route('/predict', methods=['POST'])
 def predict():
+    print("hehe")
     try:
         if model is None:
             return jsonify({'error': 'Model not loaded'}), 500
@@ -67,11 +67,9 @@ def predict():
         data = request.json
         image_data = data['image']
         
-        # Convert to numpy array and normalize
+        # Convert to numpy array and normalize (0-1 range)
         image_array = np.array(image_data, dtype=np.float32)
         
-        # Invert colors (canvas is white on black, MNIST is black on white)
-        image_array = 1.0 - image_array
         
         # Reshape for model input
         image_array = image_array.reshape(1, 784)
@@ -97,12 +95,12 @@ def predict():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    # Try to load existing model, if not found, create and train new one
-    if not load_model_file():
-        create_and_train_model()
+    # Try to load weights, if not found, train new model
+    if not load_model_weights():
+        train_and_save_weights()
     
     if model is None:
-        print("ERROR: Model could not be loaded or created!")
+        print("ERROR: Model could not be loaded!")
         exit(1)
     
     print("Starting Flask server...")
